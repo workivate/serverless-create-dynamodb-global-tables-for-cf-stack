@@ -17,7 +17,7 @@ class CreateDynamoDBGlobalTables {
 
   async createGlobalTables() {
     const enabled = _get(this.serverless, 'service.custom.dynamoDBGlobalTables.enabled', true);
-    if (enabled === false) {
+    if(enabled === false) {
       this.log('Plugin disabled');
       return;
     }
@@ -41,7 +41,7 @@ class CreateDynamoDBGlobalTables {
       'devmartn-user-tiers',
     ];
 
-    await Promise.all(upgradeVersionTableNames.map(t => this.updateReplicaVersion(t)));
+    await Promise.all(upgradeVersionTableNames.map(t => this.updateReplicaVersion(t, region)));
   }
 
   getTableNames() {
@@ -125,15 +125,7 @@ class CreateDynamoDBGlobalTables {
     return globalTableVersion === GLOBAL_TABLE_VERSION;
   }
 
-  async updateReplicaVersion(tableName) {
-
-    /**
-     * The regions can be defined in the yaml but we are just
-     * using an array as an example here
-     */
-
-    const regions = ['ca-central-1', 'ap-southeast-2', 'us-east-1', 'us-east-2', MASTER_REGION]
-
+  async updateReplicaVersion(tableName, region) {
     this.log(`Checking replica version for ${tableName}`);
     const canUpdate = await this.tableIsAtVersionNumber(tableName);
     if (!canUpdate) {
@@ -142,32 +134,30 @@ class CreateDynamoDBGlobalTables {
       return false;
     }
 
-    for (const region of regions) {
-      if (region === MASTER_REGION) {
-        this.log(`Skipping adding version ${GLOBAL_TABLE_VERSION} for the master region ${region}`);
+    if (region === MASTER_REGION) {
+      this.log(`Skipping adding version ${GLOBAL_TABLE_VERSION} for the master region ${region}`);
 
-        continue;
-      }
-      this.log(`Updating replica for ${tableName} and ${region} to version ${GLOBAL_TABLE_VERSION}`);
+      return false;
+    }
 
-      const dynamo = new AWS.DynamoDB({region: MASTER_REGION});
-      const params = {
-        TableName: tableName,
-        ReplicaUpdates: [
-          {Create: {RegionName: region}}
-        ]
-      };
+    this.log(`Updating replica for ${tableName} and ${region} to version ${GLOBAL_TABLE_VERSION}`);
+    const dynamo = new AWS.DynamoDB({region: MASTER_REGION});
+    const params = {
+      TableName: tableName,
+      ReplicaUpdates: [
+        {Create: {RegionName: region}}
+      ]
+    };
 
-      try {
-        await dynamo.updateTable(params).promise();
-        this.log(`Added Replica ${tableName} to ${region}`);
-      } catch (error) {
-        const tableExistsMessage = 'one or more replicas already existed as tables.'
-        if (error.code === 'ValidationException' && error.message.includes(tableExistsMessage)) {
-          this.log(`Replica ${tableName} already exists in ${region}`);
-        } else {
-          throw error;
-        }
+    try {
+      await dynamo.updateTable(params).promise();
+      this.log(`Added Replica ${tableName} to ${region}`);
+    } catch (error) {
+      const tableExistsMessage = 'one or more replicas already existed as tables.'
+      if (error.code === 'ValidationException' && error.message.includes(tableExistsMessage)) {
+        this.log(`Replica ${tableName} already exists in ${region}`);
+      } else {
+        throw error;
       }
     }
   }
@@ -178,4 +168,3 @@ class CreateDynamoDBGlobalTables {
 }
 
 module.exports = CreateDynamoDBGlobalTables;
-
